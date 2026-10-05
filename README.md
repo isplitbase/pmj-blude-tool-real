@@ -21,6 +21,7 @@
 | POST | `/fetch`  | 未実施を1件取り出す(doing にする) |
 | POST | `/done`   | 完了にする |
 | POST | `/error`  | 失敗にする |
+| POST | `/release`| `doing` を `pending` に戻す（中断時の戻し用） |
 
 ### POST /fetch
 ```json

@@ -12,6 +12,7 @@
     POST /fetch     … 未実施を1件取り出す(doing にする)   { target_server, worker_id }
     POST /done      … 完了にする                          { id, backup_path? }
     POST /error     … 失敗にする                          { id, error_message }
+    POST /release   … doing を pending に戻す              { id }
 
   環境変数 (Cloud Run に設定):
     BLUDE_API_URL  … 例 https://test1.aitask.biz/xxxxxxxx/deploy_api.php
@@ -100,6 +101,16 @@ def error():
                "id": int(b["id"]),
                "error_message": str(b.get("error_message") or "")[:2000]}
     res, code = _call_api(payload)
+    return jsonify(res), code
+
+
+@app.post("/release")
+def release():
+    """doing を pending に戻す(dry-run や、途中で中断したときの戻し用)。"""
+    b = _body()
+    if not b.get("id"):
+        return jsonify({"status": "NG", "error": "id required"}), 400
+    res, code = _call_api({"action": "release", "id": int(b["id"])})
     return jsonify(res), code
 
 
