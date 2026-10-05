@@ -52,6 +52,7 @@
 | `BLUDE_API_URL` | ○ | EC2 側 API の URL |
 | `BLUDE_API_KEY` | ○ | EC2 の `/data/blude_api.conf.php` の `api_key` と同じ値 |
 | `BLUDE_TIMEOUT` | 任意 | EC2 API への待ち時間(秒)。既定 60 |
+| `BLUDE_CLIENT_SECRET` | 任意 | 配信先との合言葉。設定すると `payload.client_secret` の一致を要求する |
 | `PORT`          | 自動 | Cloud Run が設定 |
 
 ## デプロイ
@@ -82,3 +83,19 @@ POST /call
 - 配信先として受け付けるのは `149` / `148` / `test1` のみ。
 - 書き込み先パスの検査(`/var/www/html/` 配下のみ、`..` 禁止)は EC2 側 API と
   配信先サーバ側の両方で行う。このサービスは内容を素通しするだけで判断しない。
+
+## 合言葉 (BLUDE_CLIENT_SECRET)
+
+ID トークンに加えて、配信先サーバとの合言葉を照合できる。
+
+- サービスアカウント鍵は `/data` に置かれ他ユーザからも読めるため、
+  鍵だけが漏れた場合に配信経路を触られないようにする二段目の防御。
+- 配信先では **root のみ読める** `/etc/blude_client.conf` に置く
+  (鍵と同じ場所・同じ権限に置くと意味がないため)。
+- 合言葉は EC2 側 API へは転送しない。このサービスで照合して終わり。
+- 未設定のときは照合しない(導入時に順番に切り替えられるようにするため)。
+
+```json
+POST /fetch
+{ "target_server": "149", "worker_id": "cron-149", "client_secret": "…" }
+```

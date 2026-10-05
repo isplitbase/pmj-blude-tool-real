@@ -18,8 +18,11 @@
     BLUDE_API_URL  … 例 https://test1.aitask.biz/xxxxxxxx/deploy_api.php
     BLUDE_API_KEY  … EC2 の /data/blude_api.conf.php の api_key と同じ値
     BLUDE_TIMEOUT  … 任意。既定 60(秒)
+    BLUDE_CLIENT_SECRET … 任意。設定すると、配信先からの呼び出しに
+                          payload.client_secret の一致を要求する(合言葉)
 """
 
+import hmac
 import os
 
 import requests
@@ -30,6 +33,10 @@ app = Flask(__name__)
 API_URL = os.environ.get("BLUDE_API_URL", "").rstrip()
 API_KEY = os.environ.get("BLUDE_API_KEY", "")
 TIMEOUT = int(os.environ.get("BLUDE_TIMEOUT", "60"))
+
+# 配信先サーバとの合言葉。設定されている場合のみ照合する(未設定なら素通し)。
+# サービスアカウント鍵とは別に持たせ、鍵だけが漏れても配信経路を触れないようにする。
+CLIENT_SECRET = os.environ.get("BLUDE_CLIENT_SECRET", "")
 
 # 配信先として受け付ける名前(想定外の値を EC2 へ渡さない)
 ALLOWED_TARGETS = ("149", "148", "test1")
@@ -61,15 +68,30 @@ def _body():
     return request.get_json(silent=True) or {}
 
 
+def _deny_by_secret(b):
+    """合言葉が合わなければ拒否の応答を返す。問題なければ None。
+       BLUDE_CLIENT_SECRET が未設定のときは照合しない(導入時の互換のため)。"""
+    if not CLIENT_SECRET:
+        return None
+    got = str((b or {}).get("client_secret") or "")
+    if not hmac.compare_digest(CLIENT_SECRET, got):
+        return jsonify({"status": "NG", "error": "client secret mismatch"}), 403
+    return None
+
+
 @app.get("/")
 def health():
     return jsonify({"status": "ok", "service": "pmj-blude-tool-real",
-                    "api_configured": bool(API_URL and API_KEY)})
+                    "api_configured": bool(API_URL and API_KEY),
+                    "client_secret_required": bool(CLIENT_SECRET)})
 
 
 @app.post("/fetch")
 def fetch():
     b = _body()
+    deny = _deny_by_secret(b)
+    if deny:
+        return deny
     target = str(b.get("target_server") or "149")
     if target not in ALLOWED_TARGETS:
         return jsonify({"status": "NG", "error": "unknown target_server: %s" % target}), 400
@@ -83,6 +105,9 @@ def fetch():
 @app.post("/done")
 def done():
     b = _body()
+    deny = _deny_by_secret(b)
+    if deny:
+        return deny
     if not b.get("id"):
         return jsonify({"status": "NG", "error": "id required"}), 400
     payload = {"action": "done", "id": int(b["id"])}
@@ -95,6 +120,9 @@ def done():
 @app.post("/error")
 def error():
     b = _body()
+    deny = _deny_by_secret(b)
+    if deny:
+        return deny
     if not b.get("id"):
         return jsonify({"status": "NG", "error": "id required"}), 400
     payload = {"action": "error",
@@ -108,6 +136,9 @@ def error():
 def release():
     """doing を pending に戻す(dry-run や、途中で中断したときの戻し用)。"""
     b = _body()
+    deny = _deny_by_secret(b)
+    if deny:
+        return deny
     if not b.get("id"):
         return jsonify({"status": "NG", "error": "id required"}), 400
     res, code = _call_api({"action": "release", "id": int(b["id"])})
